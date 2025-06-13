@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, scrolledtext
 from tkinter import ttk
 from PIL import Image, ImageTk
-from filesystem import FileSystem
+from filesystem import FileSystem  # 自定义文件系统模块
+
 
 class FileSystemGUI:
     def __init__(self, master):
@@ -18,7 +19,7 @@ class FileSystemGUI:
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # 图标
+        # 加载图标（确保当前目录有 folder.png 和 file.png）
         self.folder_icon = ImageTk.PhotoImage(Image.open("folder.png").resize((16, 16)))
         self.file_icon = ImageTk.PhotoImage(Image.open("file.png").resize((16, 16)))
 
@@ -30,8 +31,21 @@ class FileSystemGUI:
                                    font=("Helvetica", 12, "bold"), bg="#e6f2ff", fg="#003366")
         self.path_label.pack(pady=(0, 10))
 
-        self.dir_tree = ttk.Treeview(self.left, show="tree", selectmode="browse", height=35)
+        # Treeview：多列+树形结构，第一列用于图标和名称
+        self.dir_tree = ttk.Treeview(self.left, show="tree headings", selectmode="browse", height=35,
+                                     columns=("physical_addr", "length"))
         self.dir_tree.pack(fill=tk.BOTH, expand=True)
+
+        # 设置列标题
+        self.dir_tree.heading("#0", text="名称")  # #0列用于显示图标和名称
+        self.dir_tree.heading("physical_addr", text="物理地址")
+        self.dir_tree.heading("length", text="长度/目录项数")
+
+        # 设置列宽度
+        self.dir_tree.column("#0", width=160, anchor="w")
+        self.dir_tree.column("physical_addr", width=80, anchor="center")
+        self.dir_tree.column("length", width=100, anchor="center")
+
         self.dir_tree.bind("<Double-1>", self.on_double_click)
 
         # 右侧面板
@@ -69,15 +83,28 @@ class FileSystemGUI:
 
     def update_dir_list(self):
         self.dir_tree.delete(*self.dir_tree.get_children())
-        self.dir_tree.insert("", "end", text="...", iid="...", tags=("folder",))
+
+        if len(self.fs.path) > 1:
+            self.dir_tree.insert("", "end", text="...", image=self.folder_icon,
+                                 values=("", ""), tags=("folder",))
 
         for item in self.fs.list_dir():
             try:
                 self.fs.change_dir(item)
                 self.fs.change_dir("..")
-                self.dir_tree.insert("", "end", text=item, image=self.folder_icon, iid=item, tags=("folder",))
+                size, blocks, physical_addr = self.fs.get_file_info(item)
+                self.dir_tree.insert("", "end", text=item,
+                                     image=self.folder_icon,
+                                     values=(physical_addr if physical_addr is not None else "",
+                                             size if size else ""),
+                                     tags=("folder",))
             except:
-                self.dir_tree.insert("", "end", text=item, image=self.file_icon, iid=item, tags=("file",))
+                size, blocks, physical_addr = self.fs.get_file_info(item)
+                self.dir_tree.insert("", "end", text=item,
+                                     image=self.file_icon,
+                                     values=(physical_addr if physical_addr is not None else "",
+                                             size if size else ""),
+                                     tags=("file",))
 
         self.path_label.config(text=self.fs.get_current_path())
 
@@ -86,67 +113,110 @@ class FileSystemGUI:
         if not item_id:
             return
         selection = item_id[0]
+        name = self.dir_tree.item(selection, "text")
 
-        if selection == "...":
+        if name == "...":
             try:
                 self.fs.change_dir("..")
                 self.update_dir_list()
             except Exception as e:
                 messagebox.showerror("错误", str(e))
-        elif "folder" in self.dir_tree.item(selection, "tags"):
-            try:
-                self.fs.change_dir(selection)
-                self.update_dir_list()
-            except Exception as e:
-                messagebox.showerror("错误", str(e))
         else:
-            try:
-                content = self.fs.read_file(selection)
-                self.output.insert(tk.END, f"[读取] {selection}:\n{content}\n\n")
-            except Exception as e:
-                messagebox.showerror("错误", str(e))
+            tags = self.dir_tree.item(selection, "tags")
+            if "folder" in tags:
+                try:
+                    self.fs.change_dir(name)
+                    self.update_dir_list()
+                except Exception as e:
+                    messagebox.showerror("错误", str(e))
+            else:
+                try:
+                    content = self.fs.read_file(name)
+                    self.output.insert(tk.END, f"[读取] {name}:\n{content}\n\n")
+                except Exception as e:
+                    messagebox.showerror("错误", str(e))
 
     def get_selected(self):
         item_id = self.dir_tree.selection()
-        return item_id[0] if item_id else None
+        if not item_id:
+            return None
+        return self.dir_tree.item(item_id[0], "text")
+
+    def create_dir(self):
+        name = simpledialog.askstring("创建目录", "目录名称：")
+        if name:
+            try:
+                self.fs.make_dir(name)
+                self.update_dir_list()
+                self.output.insert(tk.END, f"创建目录 {name} 成功\n")
+            except Exception as e:
+                messagebox.showerror("错误", str(e))
+
+    def delete_dir(self):
+        name = self.get_selected()
+        if not name:
+            messagebox.showinfo("提示", "请先选择目录")
+            return
+        try:
+            self.fs.delete_dir(name)
+            self.update_dir_list()
+            self.output.insert(tk.END, f"删除目录 {name} 成功\n")
+        except Exception as e:
+            messagebox.showerror("错误", str(e))
+
+    def change_dir(self, name=None):
+        if not name:
+            name = self.get_selected()
+        if not name:
+            messagebox.showinfo("提示", "请先选择目录")
+            return
+        try:
+            self.fs.change_dir(name)
+            self.update_dir_list()
+            self.output.insert(tk.END, f"进入目录 {name}\n")
+        except Exception as e:
+            messagebox.showerror("错误", str(e))
 
     def create_file(self):
-        name = simpledialog.askstring("创建文件", "文件名:")
+        name = simpledialog.askstring("创建文件", "文件名称：")
         if name:
             try:
                 self.fs.create_file(name)
                 self.update_dir_list()
+                self.output.insert(tk.END, f"创建文件 {name} 成功\n")
             except Exception as e:
                 messagebox.showerror("错误", str(e))
 
     def delete_file(self):
         name = self.get_selected()
-        if not name or name == "..." or "folder" in self.dir_tree.item(name, "tags"):
-            messagebox.showinfo("提示", "请选择一个文件进行删除。")
+        if not name:
+            messagebox.showinfo("提示", "请先选择文件")
             return
         try:
             self.fs.delete_file(name)
             self.update_dir_list()
+            self.output.insert(tk.END, f"删除文件 {name} 成功\n")
         except Exception as e:
             messagebox.showerror("错误", str(e))
 
     def write_file(self):
         name = self.get_selected()
-        if not name or name == "..." or "folder" in self.dir_tree.item(name, "tags"):
-            messagebox.showinfo("提示", "不能对目录写入。")
+        if not name:
+            messagebox.showinfo("提示", "请先选择文件")
             return
-        data = simpledialog.askstring("写入文件", "内容:")
+        data = simpledialog.askstring("写文件", "写入内容：")
         if data is not None:
             try:
                 self.fs.write_file(name, data)
-                self.output.insert(tk.END, f"[写入成功] {name}:\n{data}\n\n")
+                self.output.insert(tk.END, f"写入文件 {name} 成功\n")
             except Exception as e:
                 messagebox.showerror("错误", str(e))
+        self.update_dir_list()
 
     def read_file(self):
         name = self.get_selected()
-        if not name or name == "..." or "folder" in self.dir_tree.item(name, "tags"):
-            messagebox.showinfo("提示", "不能读取目录。")
+        if not name:
+            messagebox.showinfo("提示", "请先选择文件")
             return
         try:
             content = self.fs.read_file(name)
@@ -154,60 +224,22 @@ class FileSystemGUI:
         except Exception as e:
             messagebox.showerror("错误", str(e))
 
-    def create_dir(self):
-        name = simpledialog.askstring("创建目录", "目录名:")
-        if name:
-            try:
-                self.fs.make_dir(name)
-                self.update_dir_list()
-            except Exception as e:
-                messagebox.showerror("错误", str(e))
-
-    def delete_dir(self):
-        name = self.get_selected()
-        if not name or name == "..." or "folder" not in self.dir_tree.item(name, "tags"):
-            messagebox.showinfo("提示", "请选择一个目录进行删除。")
-            return
-        try:
-            self.fs.delete_dir(name)
-            self.update_dir_list()
-        except Exception as e:
-            messagebox.showerror("错误", str(e))
-
-    def change_dir(self, name=None):
-        if not name:
-            name = self.get_selected()
-            if not name or "folder" not in self.dir_tree.item(name, "tags"):
-                messagebox.showinfo("提示", "请选择一个目录。")
-                return
-        try:
-            self.fs.change_dir(name)
-            self.update_dir_list()
-        except Exception as e:
-            messagebox.showerror("错误", str(e))
-
     def format_disk(self):
-        if messagebox.askyesno("确认", "确认格式化？所有数据将丢失"):
+        if messagebox.askyesno("格式化", "确定格式化？所有数据将丢失！"):
             self.fs.format()
             self.update_dir_list()
-            self.output.insert(tk.END, "[系统] 已格式化磁盘。\n\n")
+            self.output.insert(tk.END, "磁盘格式化成功\n")
 
     def save_disk(self):
-        try:
-            self.fs.save()
-            messagebox.showinfo("提示", "已保存到磁盘")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {e}")
+        self.fs.save()
+        self.output.insert(tk.END, "数据已保存\n")
 
     def on_closing(self):
-        try:
-            self.fs.save()
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {e}")
+        self.save_disk()
         self.master.destroy()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.geometry("1500x700")
     app = FileSystemGUI(root)
     root.mainloop()

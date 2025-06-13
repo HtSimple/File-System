@@ -18,6 +18,7 @@ class File:
         self.blocks = []
 
     def write(self, data, blocks, bitmap):
+        # 先释放旧数据块
         for i in self.blocks:
             bitmap[i] = 0
         self.blocks.clear()
@@ -108,6 +109,27 @@ class FileSystem:
 
     def list_dir(self):
         return list(self.current.entries.keys())
+
+    def get_file_info(self, name):
+        """
+        返回文件大小和占用块数，供GUI显示
+        """
+        if name not in self.current.entries:
+            raise Exception("文件不存在")
+        entry = self.current.entries[name]
+        if isinstance(entry, File):
+            size = entry.length
+            blocks = len(entry.blocks)
+            # 物理地址：第一个块号，没有块则为 None
+            physical_addr = entry.blocks[0] if entry.blocks else None
+            return size, blocks, physical_addr
+        elif isinstance(entry, Directory):
+            # 目录没有数据块，物理地址显示 None，长度为目录项数
+            size = len(entry.entries)
+            blocks = 0
+            physical_addr = None
+            return size, blocks, physical_addr
+        return None, None, None
 
     def save(self):
         with open(DISK_FILE, 'wb') as f:
