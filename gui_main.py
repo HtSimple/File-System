@@ -2,14 +2,15 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, scrolledtext
 from tkinter import ttk
 from PIL import Image, ImageTk
-from filesystem import FileSystem  # 自定义文件系统模块
+from filesystem import FileSystem
 
 
 class FileSystemGUI:
     def __init__(self, master):
         self.master = master
-        self.master.title("简易文件系统")
-        self.master.configure(bg="#e6f2ff")
+        self.master.title("简易文件系统   2352835 夏弘泰")
+        self.master.geometry("1000x600")
+        self.master.configure(bg="#eaf6ff")
         self.fs = FileSystem()
 
         try:
@@ -19,45 +20,58 @@ class FileSystemGUI:
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # 加载图标（确保当前目录有 folder.png 和 file.png）
         self.folder_icon = ImageTk.PhotoImage(Image.open("folder.png").resize((16, 16)))
         self.file_icon = ImageTk.PhotoImage(Image.open("file.png").resize((16, 16)))
 
-        # 左侧面板
-        self.left = tk.Frame(master, bg="#e6f2ff", padx=10, pady=10)
+        self.default_font = ("Microsoft YaHei", 10)
+        self.bold_font = ("Microsoft YaHei", 10, "bold")
+
+        self.left = tk.Frame(master, bg="#eaf6ff", padx=10, pady=10)
         self.left.pack(side=tk.LEFT, fill=tk.Y)
 
         self.path_label = tk.Label(self.left, text=self.fs.get_current_path(),
-                                   font=("Helvetica", 12, "bold"), bg="#e6f2ff", fg="#003366")
+                                   font=self.bold_font, bg="#eaf6ff", fg="#003366")
         self.path_label.pack(pady=(0, 10))
 
-        # Treeview：多列+树形结构，第一列用于图标和名称
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=self.bold_font)
+        style.configure("Treeview", font=self.default_font, rowheight=22)
+
         self.dir_tree = ttk.Treeview(self.left, show="tree headings", selectmode="browse", height=35,
                                      columns=("physical_addr", "length"))
         self.dir_tree.pack(fill=tk.BOTH, expand=True)
-
-        # 设置列标题
-        self.dir_tree.heading("#0", text="名称")  # #0列用于显示图标和名称
+        self.dir_tree.heading("#0", text="名称")
         self.dir_tree.heading("physical_addr", text="物理地址")
         self.dir_tree.heading("length", text="长度/目录项数")
-
-        # 设置列宽度
-        self.dir_tree.column("#0", width=160, anchor="w")
+        self.dir_tree.column("#0", width=180, anchor="w")
         self.dir_tree.column("physical_addr", width=80, anchor="center")
         self.dir_tree.column("length", width=100, anchor="center")
-
         self.dir_tree.bind("<Double-1>", self.on_double_click)
 
-        # 右侧面板
         self.right = tk.Frame(master, bg="#ffffff", padx=10, pady=10)
         self.right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        self.command_frame = tk.Frame(self.right, bg="#ffffff")
-        self.command_frame.pack(pady=5)
+        self.command_frame_top = tk.Frame(self.right, bg="#ffffff")
+        self.command_frame_top.pack(pady=3)
+        self.command_frame_bottom = tk.Frame(self.right, bg="#ffffff")
+        self.command_frame_bottom.pack(pady=3)
 
         self.output = scrolledtext.ScrolledText(self.right, wrap=tk.WORD, height=20,
-                                                font=("Consolas", 10), bg="#f9f9f9", relief=tk.FLAT)
+                                                font=("Consolas", 10), bg="#fdfdfd", relief=tk.GROOVE,
+                                                borderwidth=1)
         self.output.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # 美化按钮样式（使用 ttk + style）
+        self.ttk_style = ttk.Style()
+        self.ttk_style.configure("RoundedButton.TButton",
+                                 font=self.default_font,
+                                 padding=6,
+                                 relief="raised",
+                                 background="#cce6ff",
+                                 foreground="#003366")
+        self.ttk_style.map("RoundedButton.TButton",
+                           background=[("active", "#a3d1ff")],
+                           relief=[("pressed", "sunken")])
 
         buttons = [
             ("刷新", self.update_dir_list),
@@ -66,24 +80,21 @@ class FileSystemGUI:
             ("进入目录", self.change_dir),
             ("返回上级", lambda: self.change_dir("..")),
             ("创建文件", self.create_file),
+            ("修改文件", self.modify_file),
             ("删除文件", self.delete_file),
-            ("写文件", self.write_file),
             ("读文件", self.read_file),
             ("格式化", self.format_disk),
-            ("保存", self.save_disk)
         ]
 
-        for (label, cmd) in buttons:
-            b = tk.Button(self.command_frame, text=label, command=cmd,
-                          font=("Helvetica", 10), bg="#cce6ff", fg="#003366",
-                          relief=tk.RAISED, width=10)
-            b.pack(side=tk.LEFT, padx=3, pady=2)
+        for i, (label, cmd) in enumerate(buttons):
+            frame = self.command_frame_top if i < 5 else self.command_frame_bottom
+            b = ttk.Button(frame, text=label, command=cmd, style="RoundedButton.TButton")
+            b.pack(side=tk.LEFT, padx=5, pady=4)
 
         self.update_dir_list()
 
     def update_dir_list(self):
         self.dir_tree.delete(*self.dir_tree.get_children())
-
         if len(self.fs.path) > 1:
             self.dir_tree.insert("", "end", text="...", image=self.folder_icon,
                                  values=("", ""), tags=("folder",))
@@ -95,15 +106,15 @@ class FileSystemGUI:
                 size, blocks, physical_addr = self.fs.get_file_info(item)
                 self.dir_tree.insert("", "end", text=item,
                                      image=self.folder_icon,
-                                     values=(physical_addr if physical_addr is not None else "",
-                                             size if size else ""),
+                                     values=(str(physical_addr) if physical_addr is not None else "",
+                                             str(size) if size is not None else ""),
                                      tags=("folder",))
             except:
                 size, blocks, physical_addr = self.fs.get_file_info(item)
                 self.dir_tree.insert("", "end", text=item,
                                      image=self.file_icon,
-                                     values=(physical_addr if physical_addr is not None else "",
-                                             size if size else ""),
+                                     values=(str(physical_addr) if physical_addr is not None else "",
+                                             str(size) if size is not None else ""),
                                      tags=("file",))
 
         self.path_label.config(text=self.fs.get_current_path())
@@ -199,19 +210,37 @@ class FileSystemGUI:
         except Exception as e:
             messagebox.showerror("错误", str(e))
 
-    def write_file(self):
+    def modify_file(self):
         name = self.get_selected()
         if not name:
             messagebox.showinfo("提示", "请先选择文件")
             return
-        data = simpledialog.askstring("写文件", "写入内容：")
-        if data is not None:
+        try:
+            old_content = self.fs.read_file(name)
+        except Exception as e:
+            messagebox.showerror("错误", f"读取文件失败: {e}")
+            return
+
+        editor = tk.Toplevel(self.master)
+        editor.title(f"修改文件 - {name}")
+        editor.geometry("500x400")
+
+        text_area = scrolledtext.ScrolledText(editor, wrap=tk.WORD, font=("Consolas", 10))
+        text_area.pack(fill=tk.BOTH, expand=True)
+        text_area.insert(tk.END, old_content)
+
+        def save_changes():
+            new_content = text_area.get("1.0", tk.END).rstrip("\n")
             try:
-                self.fs.write_file(name, data)
-                self.output.insert(tk.END, f"写入文件 {name} 成功\n")
+                self.fs.write_file(name, new_content)
+                self.output.insert(tk.END, f"修改文件 {name} 成功\n")
+                editor.destroy()
+                self.update_dir_list()
             except Exception as e:
-                messagebox.showerror("错误", str(e))
-        self.update_dir_list()
+                messagebox.showerror("错误", f"写入失败: {e}")
+
+        save_btn = ttk.Button(editor, text="保存", command=save_changes, style="RoundedButton.TButton")
+        save_btn.pack(pady=5)
 
     def read_file(self):
         name = self.get_selected()
