@@ -47,6 +47,11 @@ class FileSystemGUI:
         self.dir_tree.column("physical_addr", width=80, anchor="center")
         self.dir_tree.column("length", width=100, anchor="center")
         self.dir_tree.bind("<Double-1>", self.on_double_click)
+        self.dir_tree.bind("<Button-3>", self.show_right_click_menu)  # 右键绑定
+
+        self.right_click_menu = tk.Menu(self.master, tearoff=0)
+        self.right_click_menu.add_command(label="打开(读取)", command=self.right_click_read)
+        self.right_click_menu.add_command(label="删除", command=self.right_click_delete)
 
         self.right = tk.Frame(master, bg="#ffffff", padx=10, pady=10)
         self.right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -61,7 +66,6 @@ class FileSystemGUI:
                                                 borderwidth=1)
         self.output.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        # 美化按钮样式（使用 ttk + style）
         self.ttk_style = ttk.Style()
         self.ttk_style.configure("RoundedButton.TButton",
                                  font=self.default_font,
@@ -153,6 +157,37 @@ class FileSystemGUI:
             return None
         return self.dir_tree.item(item_id[0], "text")
 
+    def show_right_click_menu(self, event):
+        row_id = self.dir_tree.identify_row(event.y)
+        if row_id:
+            self.dir_tree.selection_set(row_id)
+            self.right_click_menu.post(event.x_root, event.y_root)
+
+    def right_click_read(self):
+        name = self.get_selected()
+        if name and name != "...":
+            try:
+                content = self.fs.read_file(name)
+                self.output.insert(tk.END, f"[读取] {name}:\n{content}\n\n")
+            except Exception as e:
+                messagebox.showerror("错误", str(e))
+
+    def right_click_delete(self):
+        name = self.get_selected()
+        if not name or name == "...":
+            return
+        try:
+            # 判断是文件还是目录
+            tags = self.dir_tree.item(self.dir_tree.selection()[0], "tags")
+            if "folder" in tags:
+                self.fs.delete_dir(name)
+            else:
+                self.fs.delete_file(name)
+            self.update_dir_list()
+            self.output.insert(tk.END, f"删除 {name} 成功\n")
+        except Exception as e:
+            messagebox.showerror("错误", str(e))
+
     def create_dir(self):
         name = simpledialog.askstring("创建目录", "目录名称：")
         if name:
@@ -198,8 +233,9 @@ class FileSystemGUI:
             except Exception as e:
                 messagebox.showerror("错误", str(e))
 
-    def delete_file(self):
-        name = self.get_selected()
+    def delete_file(self, name=None):
+        if name is None:
+            name = self.get_selected()
         if not name:
             messagebox.showinfo("提示", "请先选择文件")
             return
@@ -242,8 +278,9 @@ class FileSystemGUI:
         save_btn = ttk.Button(editor, text="保存", command=save_changes, style="RoundedButton.TButton")
         save_btn.pack(pady=5)
 
-    def read_file(self):
-        name = self.get_selected()
+    def read_file(self, name=None):
+        if name is None:
+            name = self.get_selected()
         if not name:
             messagebox.showinfo("提示", "请先选择文件")
             return
